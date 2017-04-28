@@ -1,7 +1,11 @@
 #include "ReadHook.h"
+#include <iostream>
+#include <fstream>
+
+using namespace std;
 
 //https://msdn.microsoft.com/en-us/library/windows/desktop/aa365467(v=vs.85).aspx
-typedef BOOL (WINAPI td_ReadFile)(
+typedef BOOL (WINAPI *td_ReadFile)(
     HANDLE       hFile,
     LPVOID       lpBuffer,
     DWORD        nNumberOfBytesToRead,
@@ -9,10 +13,27 @@ typedef BOOL (WINAPI td_ReadFile)(
     LPOVERLAPPED lpOverlapped
     );
 
-td_ReadFile* originalReadFile;
+td_ReadFile originalReadFile = NULL;
+
+
+BOOL WINAPI ReadHook::ReadFileDetour(
+    HANDLE       hFile,
+    LPVOID       lpBuffer,
+    DWORD        nNumberOfBytesToRead,
+    LPDWORD      lpNumberOfBytesRead,
+    LPOVERLAPPED lpOverlapped
+    )
+{
+
+  OutputDebugStringA((LPCSTR)lpBuffer);
+  return originalReadFile(
+      hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+}
+
 
 void ReadHook::Initialize()
 {
+  CreateDirectory("./out", 0);
   HANDLE hProcess = GetCurrentProcess();
 
   /* Init */
@@ -23,14 +44,36 @@ void ReadHook::Initialize()
     Sleep(500);
   }
   //Get function of ReadFile
-  originalReadFile = (td_ReadFile*)GetProcAddress(
-      kernelHandle,
-      "ReadFile");
+  //originalReadFile = (td_ReadFile*)GetProcAddress(
+  //    kernelHandle,
+  //    "ReadFile");
+  //
 
+  if (MH_Initialize() != MH_OK)
+  {
+    //err
+  }
+
+  if (MH_CreateHookApiEx(L"Kernel32", "ReadFile", (void*)&ReadFileDetour, &originalReadFile) != MH_OK)
+  {
+    //err
+  }
+
+  if (MH_EnableHook((void*)&ReadFile) != MH_OK)
+  {
+    //err
+  }
+
+  // DWORD oldProt = protectMemory(originalReadFile, PAGE_EXECUTE_READWRITE)
+
+  ofstream file;
+  file.open("hook.txt");
+  file << "Kernel32::ReadFile found\n";
   if(originalReadFile != NULL)
   {
-    std::cout << (void*)originalReadFile << std::endl;
+    file << (void*)originalReadFile << std::endl;
   }
+  file.close();
 
 }
 

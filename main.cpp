@@ -17,7 +17,7 @@ void Restore()
 	ReadHook::Restore();
 }
 //BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
-extern "C" __declspec(dllexport) BOOL APIENTRY DllMain(HMODULE module, DWORD reason_for_call, LPVOID reserved)
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason_for_call, LPVOID reserved)
 {
 	switch (reason_for_call)
 	{
