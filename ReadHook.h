@@ -1,9 +1,6 @@
 #pragma once
-#include "MatMem.h"
 #include "MinHook.h"
-#include <iostream>
 #include <windows.h>
-
 
 namespace ReadHook
 {

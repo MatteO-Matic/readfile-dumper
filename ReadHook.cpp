@@ -1,8 +1,12 @@
 #include "ReadHook.h"
 #include <iostream>
 #include <fstream>
+#include <windows.h>
+#include <fileapi.h>
 
 using namespace std;
+
+#define BUFSIZE MAX_PATH
 
 //https://msdn.microsoft.com/en-us/library/windows/desktop/aa365467(v=vs.85).aspx
 typedef BOOL (WINAPI *td_ReadFile)(
@@ -15,6 +19,7 @@ typedef BOOL (WINAPI *td_ReadFile)(
 
 td_ReadFile originalReadFile = NULL;
 
+int readFileCounter = 0;
 
 BOOL WINAPI ReadHook::ReadFileDetour(
     HANDLE       hFile,
@@ -24,8 +29,27 @@ BOOL WINAPI ReadHook::ReadFileDetour(
     LPOVERLAPPED lpOverlapped
     )
 {
+  //Get file path
+  TCHAR fPath[BUFSIZE];
+  DWORD dwRet;
 
-  OutputDebugStringA((LPCSTR)lpBuffer);
+  if(hFile == INVALID_HANDLE_VALUE)
+  {
+    OutputDebugStringA("ReadHook: Invalid handle value");
+    return originalReadFile(
+      hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+  }
+  //GetFileInformationByHandleEx(hFile)
+  dwRet = GetFinalPathNameByHandleA(hFile, fPath, BUFSIZE, NULL);
+
+
+
+
+ // if(dwRet < BUFSIZE)
+ // {
+ //   OutputDebugStringA(fPath);
+ // }
+
   return originalReadFile(
       hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
 }
@@ -33,6 +57,7 @@ BOOL WINAPI ReadHook::ReadFileDetour(
 
 void ReadHook::Initialize()
 {
+  cout << "Initialize readhook\n";
   CreateDirectory("./out", 0);
   HANDLE hProcess = GetCurrentProcess();
 
