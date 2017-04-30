@@ -6,15 +6,16 @@
 #include <windows.h>
 #include "ReadHook.h"
 
+ReadHook app;
 
 void Init()
 {
-	ReadHook::Initialize();
+  app.Initialize();
 }
 
 void Restore()
 {
-	ReadHook::Restore();
+  app.Restore();
 }
 //BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason_for_call, LPVOID reserved)
