@@ -33,11 +33,6 @@ BOOL WINAPI ReadHook::ReadFileDetour(
     LPOVERLAPPED lpOverlapped
     )
 {
-  //Get file path
-  TCHAR fPath[LONG_PATH];
-  DWORD dwRet;
-
-
   if(hFile == INVALID_HANDLE_VALUE)
   {
     OutputDebugString("ReadHook: Invalid handle value");
@@ -45,53 +40,78 @@ BOOL WINAPI ReadHook::ReadFileDetour(
         hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
   }
 
+  //Get file path
+  TCHAR fPath[LONG_PATH];
+  DWORD dwRet;
+
   dwRet = GetFinalPathNameByHandle(hFile, fPath, LONG_PATH, NULL);
 
   if(dwRet < LONG_PATH)
   {
     //Save the file
-    char*filename = strrchr((const char*)fPath, '\\');
+    char* filename = strrchr((const char*)fPath, '\\');
 
     if(filename != NULL)
     {
       filename++;
 
       //Check if exefilepath + out + filename
-      char *newFilePath = (char*)malloc(
+      char* newFilePath = (char*)malloc(
           sizeof(m_exePath)+
           sizeof(filename)+
           sizeof("\\_tout\\"));
+      char* newFileInc;
 
       strcpy(newFilePath, m_exePath);
       strcat(newFilePath, "\\_tout\\");
       strcat(newFilePath, filename);
 
       int offset = 0;
-      while(MatFile::FileExists(newFilePath))
+      bool isOffset = false;
+      //while(MatFile::FileExists(newFilePath))
+      //{
+      //  isOffset = true;
+      //  offset++;
+      //  newFileInc = (char*)malloc(sizeof(newFilePath)+sizeof(char)*5);
+
+      //  strcpy(newFileInc, newFilePath);
+      //  char*soffset;
+      //  sprintf(soffset, "%ld", offset);
+      //  strcat(newFileInc, soffset);
+
+      //  //Save as newfileinc
+      //}
+
+      BOOL result = originalReadFile(
+            hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+
+      if(*lpNumberOfBytesRead == 0) //EOF
       {
-        offset++;
-        char* newFileInc = malloc(sizeof(newFilePath)+sizeof(char)*5);
-
-        strcpy(newFileInc, newFilePath);
-        char*soffset;
-        sprintf(soffset, "%ld", offset);
-        strcat(newFileInc, soffset);
-
-        //Save as newfileinc
+        return result;
       }
 
+      HANDLE fTargetFile = CreateFile(newFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+     // HANDLE fTargetFile = isOffset ?
+     //   CreateFile(newFileInc, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL):
+     //   CreateFile(newFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    //  ofstream pfile;
+      if(fTargetFile == INVALID_HANDLE_VALUE)
+      {
+        OutputDebugString("New file not created.");
+        return result;
+      }
 
-    //  pfile.open(filename, ofstream::out);
+      DWORD dwBytesWritten;
 
-      OutputDebugString(newFilePath);
 
-      OutputDebugString((LPCSTR)lpBuffer);
-      OutputDebugString(fPath);
-      OutputDebugString((LPCSTR)filename);
+      if(!WriteFile(fTargetFile, lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
+      {
+        OutputDebugString("Buffer not written.");
+        return result;
+      }
 
-      free(newFilePath);
+      CloseHandle(fTargetFile);
+      return result;
     }
 
   }
