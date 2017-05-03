@@ -1,6 +1,6 @@
 #pragma once
-#include "MinHook.h"
 #include <windows.h>
+#include "MinHook.h"
 
 class ReadHook
 {
@@ -8,6 +8,7 @@ class ReadHook
 
   private:
     static TCHAR m_exePath[LONG_PATH];
+    static HANDLE m_outHandle;
 
   public:
     void Initialize();

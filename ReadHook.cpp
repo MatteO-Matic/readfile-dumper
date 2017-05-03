@@ -13,6 +13,8 @@ using namespace std;
 #define LONG_PATH 4096
 
 TCHAR ReadHook::m_exePath[LONG_PATH];
+HANDLE ReadHook::m_outHandle = NULL;
+
 
 //https://msdn.microsoft.com/en-us/library/windows/desktop/aa365467(v=vs.85).aspx
 typedef BOOL (WINAPI *td_ReadFile)(
@@ -48,69 +50,63 @@ BOOL WINAPI ReadHook::ReadFileDetour(
 
   if(dwRet < LONG_PATH)
   {
-    //Save the file
     char* filename = strrchr((const char*)fPath, '\\');
 
     if(filename != NULL)
     {
-      filename++;
+      filename++; //don't include first \
 
       //Check if exefilepath + out + filename
       char* newFilePath = (char*)malloc(
           sizeof(m_exePath)+
           sizeof(filename)+
           sizeof("\\_tout\\"));
-      char* newFileInc;
 
       strcpy(newFilePath, m_exePath);
       strcat(newFilePath, "\\_tout\\");
       strcat(newFilePath, filename);
 
-      int offset = 0;
-      bool isOffset = false;
-      //while(MatFile::FileExists(newFilePath))
-      //{
-      //  isOffset = true;
-      //  offset++;
-      //  newFileInc = (char*)malloc(sizeof(newFilePath)+sizeof(char)*5);
+      //Create out file
+      m_outHandle =
+        CreateFile(newFilePath, FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-      //  strcpy(newFileInc, newFilePath);
-      //  char*soffset;
-      //  sprintf(soffset, "%ld", offset);
-      //  strcat(newFileInc, soffset);
-
-      //  //Save as newfileinc
-      //}
-
-      BOOL result = originalReadFile(
-            hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
-
-      if(*lpNumberOfBytesRead == 0) //EOF
-      {
-        return result;
-      }
-
-      HANDLE fTargetFile = CreateFile(newFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-     // HANDLE fTargetFile = isOffset ?
-     //   CreateFile(newFileInc, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL):
-     //   CreateFile(newFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-
-      if(fTargetFile == INVALID_HANDLE_VALUE)
+      if(m_outHandle == INVALID_HANDLE_VALUE)
       {
         OutputDebugString("New file not created.");
-        return result;
+        return originalReadFile(
+            hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
       }
 
-      DWORD dwBytesWritten;
+      //Readfile til EOF and Write everything to target
+      bool result = true;
+        result = originalReadFile(
+            hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
 
+        if(!result)
+        {
+          char*errormsg;
+          sprintf(errormsg, "File couldn't be read. Error %u", GetLastError());
+          OutputDebugString(errormsg);
+          return result;
+        }
 
-      if(!WriteFile(fTargetFile, lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
-      {
-        OutputDebugString("Buffer not written.");
-        return result;
-      }
+        if(*lpNumberOfBytesRead == 0) //EOF
+        {
+          return result;
+        }
 
-      CloseHandle(fTargetFile);
+        DWORD dwBytesWritten;
+
+        //Save the file
+        if(!WriteFile(m_outHandle, lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
+        {
+          char*errormsg;
+          sprintf(errormsg, "Buffer not written. Error %u", GetLastError());
+          OutputDebugString(errormsg);
+          return result;
+        }
+
+      CloseHandle(m_outHandle);
       return result;
     }
 
