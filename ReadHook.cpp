@@ -77,7 +77,7 @@ BOOL WINAPI ReadHook::ReadFileDetour(
             hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
       }
 
-      //Readfile til EOF and Write everything to target
+      //Readfile and append buffer to outfile
       bool result = true;
         result = originalReadFile(
             hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
@@ -151,22 +151,34 @@ void ReadHook::Initialize()
 
   if (MH_Initialize() != MH_OK)
   {
-    //err
+      cout << "Unable to initialize MH\n";
+      return;
   }
 
   if (MH_CreateHookApiEx(L"Kernel32", "ReadFile", (void*)&ReadHook::ReadFileDetour, &originalReadFile) != MH_OK)
   {
-    //err
+    cout << "Unable create api hook Kernel32.ReadFile()\n";
+    return;
   }
 
   if (MH_EnableHook((void*)&ReadFile) != MH_OK)
   {
-    //err
+    cout << "Unable write hook to ReadFile\n";
+    return;
   }
 }
 
 void ReadHook::Restore()
 {
-
+    if (MH_DisableHook(&ReadFile) != MH_OK)
+    {
+      cout << "Unable to unhook ReadFile\n";
+      return;
+    }
+    if (MH_Uninitialize() != MH_OK)
+    {
+      cout << "Unable to uninitialize MH";
+      return;
+    }
 }
 
