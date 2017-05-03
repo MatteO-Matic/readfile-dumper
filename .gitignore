@@ -3,6 +3,7 @@ bin/*
 
 # IDE
 tags
+todo.txt
 
 # Prerequisites
 *.d
