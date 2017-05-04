@@ -6,7 +6,8 @@
 #include <fstream>
 #include <windows.h>
 #include <string>
-#include <map>
+#include <vector>
+#include <algorithm>
 
 using namespace std;
 
@@ -18,7 +19,7 @@ using namespace std;
 std::string ReadHook::m_exePath;
 HANDLE ReadHook::m_outHandle = NULL;
 //<READHANDLE, WRITEHANDLE>
-std::map<HANDLE, HANDLE> ReadHook::m_fHandles;
+std::vector<string> ReadHook::m_files;
 
 //https://msdn.microsoft.com/en-us/library/windows/desktop/aa365467(v=vs.85).aspx
 typedef BOOL (WINAPI *td_ReadFile)(
@@ -39,143 +40,121 @@ BOOL WINAPI ReadHook::ReadFileDetour(
     LPOVERLAPPED lpOverlapped
     )
 {
+
+  //Check if the READFILE handle is ok
   if(!hFile || hFile == INVALID_HANDLE_VALUE)
   {
-    OutputDebugString("ReadHook: Invalid handle value");
+    Logger::getLogger()->Log("ReadHook: Invalid handle value");
     return originalReadFile(
         hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
   }
 
-  if(m_fHandles.count(hFile) > 0) //if we have the READHANDLE already
-  {
-    //Check if handle is still good
-    if(m_fHandles.at(hFile) == INVALID_HANDLE_VALUE)
-    {
-      OutputDebugString("Invalid WRITEHANDLE");
-      //Create a new one and append to last one
+  TCHAR fPath[LONG_PATH];
+  DWORD dwRet;
+  dwRet = GetFinalPathNameByHandle(hFile, fPath, LONG_PATH, NULL);
 
-      return originalReadFile( //temp here, should createfile append?
+  if(dwRet < LONG_PATH)
+  {
+    //Get filename
+    vector<string> spline;
+    string filename;
+
+    MatFile::Split(spline, fPath, "\\");
+
+    if(!spline.empty())
+    {
+      filename = spline.back();
+    }
+
+    //Check if exefilepath + out + filename
+    string newFilePath = m_exePath + "\\_tout\\";
+    newFilePath += filename;
+
+    string filepath(fPath);
+    Logger::getLogger()->Log(filepath.c_str());
+
+    if(filepath.empty())
+    {
+      Logger::getLogger()->Log("no filepath");
+      return originalReadFile(
           hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
     }
 
-    //Readfile
-    bool result = originalReadFile(
-        hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
-    if(!result)
+    //Check if it already exists
+    if(find(m_files.begin(), m_files.end(), filepath) != m_files.end())
     {
-      Logger::getLogger()->Log("File couldn't be read. Error %u", GetLastError());
-      return result;
+      Logger::getLogger()->Log("Already added %s", filepath.c_str());
+      return originalReadFile(
+          hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
     }
-
-    if(*lpNumberOfBytesRead == 0) //EOF
+    else
     {
-      OutputDebugString("EOF");
-      if(!CloseHandle(m_fHandles.at(hFile)))
+      //New file, write full file to _out
+      //Add to vector
+      m_files.push_back(filepath);
+      //Get current file pointer
+      LARGE_INTEGER fp = MatFile::GetFilePointer(hFile);
+
+      HANDLE hOutFile =
+        CreateFile(newFilePath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+      if(hOutFile == INVALID_HANDLE_VALUE)
       {
-        Logger::getLogger()->Log("Writefile handle couldn't be closed. Error %u",  GetLastError());
-      }
-      m_fHandles.erase(hFile);
-      return result;
-    }
-
-    //Write read data to handle
-    DWORD dwBytesWritten;
-    if(!WriteFile(m_fHandles.at( hFile ), lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
-    {
-      Logger::getLogger()->Log("Buffer not written. Error %u",  GetLastError());
-      return result;
-    }
-  }
-  else //We don't have a  WRITEHANDLE, Create new WRITEHANDLE
-  {
-    Logger::getLogger()->Log("We have no writehandle, Create a new one");
-    //Get file path from READHANDLE
-    TCHAR fPath[LONG_PATH];
-    DWORD dwRet;
-    dwRet = GetFinalPathNameByHandle(hFile, fPath, LONG_PATH, NULL);
-
-    if(dwRet < LONG_PATH)
-    {
-      //Get filename
-      vector<string> spline;
-      string filename;
-      OutputDebugString(fPath);
-      MatFile::Split(spline, fPath, "\\");
-
-      if(!spline.empty())
-      {
-        filename = spline.back();
-      }
-      OutputDebugString(filename.c_str());
-
-      if(!filename.empty())
-      {
-        OutputDebugString(filename.c_str());
-        Logger::getLogger()->Log("Creating WRITEHANDLE for %u", filename);
-        //Check if exefilepath + out + filename
-        string newFilePath = m_exePath + "\\_tout\\";
-        newFilePath += filename;
-        m_fHandles[hFile] =
-          CreateFile(newFilePath.c_str(), FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-
-
-        if(m_fHandles.at( hFile ) == INVALID_HANDLE_VALUE)
+        Logger::getLogger()->Log("New file was not created. Invalid handle.");
+        //Try to close handle
+        if(!CloseHandle(hOutFile))
         {
-          OutputDebugString("New file not created.");
-          return originalReadFile(
-              hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+          Logger::getLogger()->Log("Writefile handle couldn't be closed. Error %u",  GetLastError());
         }
-
-        //Readfile and write to WRITEHANDLE
-        bool result = originalReadFile(
+        return originalReadFile(
             hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+      }
+      bool result = true;
+      while(result)
+      {
+        result = originalReadFile(
+            hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+
         if(!result)
         {
           Logger::getLogger()->Log("File couldn't be read. Error %u", GetLastError());
-          return result;
+          break;
         }
 
         if(*lpNumberOfBytesRead == 0) //EOF
         {
-          OutputDebugString("EOF");
-          if(!CloseHandle(m_fHandles.at( hFile )))
-          {
-            Logger::getLogger()->Log("Writefile handle couldn't be closed. Error %u",  GetLastError());
-          }
-          m_fHandles.erase(hFile);
-          return result;
+          Logger::getLogger()->Log("EOF");
+          break;
         }
 
         //Write read data to handle
         DWORD dwBytesWritten;
-        if(!WriteFile(m_fHandles.at( hFile ), lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
+        if(!WriteFile(hOutFile, lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
         {
           Logger::getLogger()->Log("Buffer not written. Error %u",  GetLastError());
-          return result;
+          break;
         }
+
       }
-      else
+
+      if(!CloseHandle(hOutFile))
       {
-        Logger::getLogger()->Log("%s is empty", filename);
-        return originalReadFile(
-              hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+        Logger::getLogger()->Log("Writefile handle couldn't be closed. Error %u",  GetLastError());
       }
-      //Check if we already have a handle open
-      //   if(m_outHandle == NULL || m_outHandle == INVALID_HANDLE_VALUE)
-      //   {
-      //     int counter = 0;
-      //     while(MatFile::CFileExists(newFilePath.c_str()))
-      //     {
-      //       newFilePath += std::to_string(counter);
-      //       counter++;
-      //     }
-      //   }
-    }
-    else
-    {
-      OutputDebugString("Path buffer to small.");
+      //reset READHANDLE filepointer
+      LARGE_INTEGER lpNewFp;
+      SetFilePointerEx(hFile, fp, &lpNewFp, FILE_BEGIN);
+      //Go back to original read function
+      return originalReadFile(
+          hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
     }
   }
+  else
+  {
+    Logger::getLogger()->Log("Path buffer to small.");
+  }
+  return originalReadFile(
+      hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
 }
 
 

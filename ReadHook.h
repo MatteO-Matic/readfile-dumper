@@ -2,7 +2,7 @@
 #include <windows.h>
 #include "MinHook.h"
 #include <string>
-#include <map>
+#include <vector>
 
 class ReadHook
 {
@@ -11,7 +11,7 @@ class ReadHook
   private:
     static std::string m_exePath;
     static HANDLE m_outHandle;
-    static std::map<HANDLE, HANDLE> m_fHandles;
+    static std::vector<std::string> m_files;
 
   public:
     void Initialize();
