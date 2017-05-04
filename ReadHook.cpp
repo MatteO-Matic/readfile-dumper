@@ -1,9 +1,12 @@
 #include "ReadHook.h"
 #include "MatFile.h"
+#include "logger.h"
+
 #include <iostream>
 #include <fstream>
 #include <windows.h>
-#include <string.h>
+#include <string>
+#include <map>
 
 using namespace std;
 
@@ -12,9 +15,10 @@ using namespace std;
 
 #define LONG_PATH 4096
 
-TCHAR ReadHook::m_exePath[LONG_PATH];
+std::string ReadHook::m_exePath;
 HANDLE ReadHook::m_outHandle = NULL;
-
+//<READHANDLE, WRITEHANDLE>
+std::map<HANDLE, HANDLE> ReadHook::m_fHandles;
 
 //https://msdn.microsoft.com/en-us/library/windows/desktop/aa365467(v=vs.85).aspx
 typedef BOOL (WINAPI *td_ReadFile)(
@@ -35,100 +39,158 @@ BOOL WINAPI ReadHook::ReadFileDetour(
     LPOVERLAPPED lpOverlapped
     )
 {
-  if(hFile == INVALID_HANDLE_VALUE)
+  if(!hFile || hFile == INVALID_HANDLE_VALUE)
   {
     OutputDebugString("ReadHook: Invalid handle value");
     return originalReadFile(
         hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
   }
 
-  //Get file path
-  TCHAR fPath[LONG_PATH];
-  DWORD dwRet;
-
-  dwRet = GetFinalPathNameByHandle(hFile, fPath, LONG_PATH, NULL);
-
-  if(dwRet < LONG_PATH)
+  if(m_fHandles.count(hFile) > 0) //if we have the READHANDLE already
   {
-    char* filename = strrchr((const char*)fPath, '\\');
-
-    if(filename != NULL)
+    //Check if handle is still good
+    if(m_fHandles.at(hFile) == INVALID_HANDLE_VALUE)
     {
-      filename++; //don't include first \
+      OutputDebugString("Invalid WRITEHANDLE");
+      //Create a new one and append to last one
 
-      //Check if exefilepath + out + filename
-      char* newFilePath = (char*)malloc(
-          sizeof(m_exePath)+
-          sizeof(filename)+
-          sizeof("\\_tout\\"));
+      return originalReadFile( //temp here, should createfile append?
+          hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+    }
 
-      strcpy(newFilePath, m_exePath);
-      strcat(newFilePath, "\\_tout\\");
-      strcat(newFilePath, filename);
+    //Readfile
+    bool result = originalReadFile(
+        hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+    if(!result)
+    {
+      Logger::getLogger()->Log("File couldn't be read. Error %u", GetLastError());
+      return result;
+    }
 
-      //Create out file
-      m_outHandle =
-        CreateFile(newFilePath, FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-
-      if(m_outHandle == INVALID_HANDLE_VALUE)
+    if(*lpNumberOfBytesRead == 0) //EOF
+    {
+      OutputDebugString("EOF");
+      if(!CloseHandle(m_fHandles.at(hFile)))
       {
-        OutputDebugString("New file not created.");
-        return originalReadFile(
-            hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+        Logger::getLogger()->Log("Writefile handle couldn't be closed. Error %u",  GetLastError());
       }
+      m_fHandles.erase(hFile);
+      return result;
+    }
 
-      //Readfile and append buffer to outfile
-      bool result = true;
-        result = originalReadFile(
+    //Write read data to handle
+    DWORD dwBytesWritten;
+    if(!WriteFile(m_fHandles.at( hFile ), lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
+    {
+      Logger::getLogger()->Log("Buffer not written. Error %u",  GetLastError());
+      return result;
+    }
+  }
+  else //We don't have a  WRITEHANDLE, Create new WRITEHANDLE
+  {
+    Logger::getLogger()->Log("We have no writehandle, Create a new one");
+    //Get file path from READHANDLE
+    TCHAR fPath[LONG_PATH];
+    DWORD dwRet;
+    dwRet = GetFinalPathNameByHandle(hFile, fPath, LONG_PATH, NULL);
+
+    if(dwRet < LONG_PATH)
+    {
+      //Get filename
+      vector<string> spline;
+      string filename;
+      OutputDebugString(fPath);
+      MatFile::Split(spline, fPath, "\\");
+
+      if(!spline.empty())
+      {
+        filename = spline.back();
+      }
+      OutputDebugString(filename.c_str());
+
+      if(!filename.empty())
+      {
+        OutputDebugString(filename.c_str());
+        Logger::getLogger()->Log("Creating WRITEHANDLE for %u", filename);
+        //Check if exefilepath + out + filename
+        string newFilePath = m_exePath + "\\_tout\\";
+        newFilePath += filename;
+        m_fHandles[hFile] =
+          CreateFile(newFilePath.c_str(), FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+
+        if(m_fHandles.at( hFile ) == INVALID_HANDLE_VALUE)
+        {
+          OutputDebugString("New file not created.");
+          return originalReadFile(
+              hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+        }
+
+        //Readfile and write to WRITEHANDLE
+        bool result = originalReadFile(
             hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
-
         if(!result)
         {
-          char*errormsg;
-          sprintf(errormsg, "File couldn't be read. Error %u", GetLastError());
-          OutputDebugString(errormsg);
+          Logger::getLogger()->Log("File couldn't be read. Error %u", GetLastError());
           return result;
         }
 
         if(*lpNumberOfBytesRead == 0) //EOF
         {
+          OutputDebugString("EOF");
+          if(!CloseHandle(m_fHandles.at( hFile )))
+          {
+            Logger::getLogger()->Log("Writefile handle couldn't be closed. Error %u",  GetLastError());
+          }
+          m_fHandles.erase(hFile);
           return result;
         }
 
+        //Write read data to handle
         DWORD dwBytesWritten;
-
-        //Save the file
-        if(!WriteFile(m_outHandle, lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
+        if(!WriteFile(m_fHandles.at( hFile ), lpBuffer, *lpNumberOfBytesRead, &dwBytesWritten, NULL))
         {
-          char*errormsg;
-          sprintf(errormsg, "Buffer not written. Error %u", GetLastError());
-          OutputDebugString(errormsg);
+          Logger::getLogger()->Log("Buffer not written. Error %u",  GetLastError());
           return result;
         }
-
-      CloseHandle(m_outHandle);
-      return result;
+      }
+      else
+      {
+        Logger::getLogger()->Log("%s is empty", filename);
+        return originalReadFile(
+              hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+      }
+      //Check if we already have a handle open
+      //   if(m_outHandle == NULL || m_outHandle == INVALID_HANDLE_VALUE)
+      //   {
+      //     int counter = 0;
+      //     while(MatFile::CFileExists(newFilePath.c_str()))
+      //     {
+      //       newFilePath += std::to_string(counter);
+      //       counter++;
+      //     }
+      //   }
     }
-
+    else
+    {
+      OutputDebugString("Path buffer to small.");
+    }
   }
-  else
-  {
-    OutputDebugString("Path buffer to small.");
-  }
-
-  return originalReadFile(
-      hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
 }
 
 
 void ReadHook::Initialize()
 {
   // SelfPath
-  GetModuleFileName(NULL, m_exePath, sizeof(m_exePath));
-  char*ldir= strrchr((const char*)m_exePath, '\\');
+  char buffer[LONG_PATH];
+  GetModuleFileName(NULL, buffer, sizeof(buffer));
 
-  if(ldir != NULL)
-    *ldir = '\0';
+  string::size_type pos = string(buffer).find_last_of("\\/");
+  m_exePath = string(buffer).substr(0, pos);
+
+  //char*ldir= strrchr((const char*)m_exePath, '\\');
+  // if(ldir != NULL)
+  //   *ldir = '\0';
 
   cout << m_exePath << "\n";
 
@@ -151,8 +213,8 @@ void ReadHook::Initialize()
 
   if (MH_Initialize() != MH_OK)
   {
-      cout << "Unable to initialize MH\n";
-      return;
+    cout << "Unable to initialize MH\n";
+    return;
   }
 
   if (MH_CreateHookApiEx(L"Kernel32", "ReadFile", (void*)&ReadHook::ReadFileDetour, &originalReadFile) != MH_OK)
@@ -170,15 +232,15 @@ void ReadHook::Initialize()
 
 void ReadHook::Restore()
 {
-    if (MH_DisableHook(&ReadFile) != MH_OK)
-    {
-      cout << "Unable to unhook ReadFile\n";
-      return;
-    }
-    if (MH_Uninitialize() != MH_OK)
-    {
-      cout << "Unable to uninitialize MH";
-      return;
-    }
+  if (MH_DisableHook((void*)&ReadFile) != MH_OK)
+  {
+    cout << "Unable to unhook ReadFile\n";
+    return;
+  }
+  if (MH_Uninitialize() != MH_OK)
+  {
+    cout << "Unable to uninitialize MH";
+    return;
+  }
 }
 

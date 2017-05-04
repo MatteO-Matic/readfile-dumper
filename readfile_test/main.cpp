@@ -107,6 +107,6 @@ int main()
     read4();
     read1(); //multiple reads on same file
 
-    return 0;
   }
+  return 0;
 }

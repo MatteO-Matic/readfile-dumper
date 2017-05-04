@@ -1,14 +1,17 @@
 #pragma once
 #include <windows.h>
 #include "MinHook.h"
+#include <string>
+#include <map>
 
 class ReadHook
 {
   #define LONG_PATH 4096
 
   private:
-    static TCHAR m_exePath[LONG_PATH];
+    static std::string m_exePath;
     static HANDLE m_outHandle;
+    static std::map<HANDLE, HANDLE> m_fHandles;
 
   public:
     void Initialize();
