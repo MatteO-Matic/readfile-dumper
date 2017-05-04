@@ -36,3 +36,13 @@ void MatFile::Split(vector<string> &tokens, const string &str, const string &del
         pos = str.find_first_of(delimiters, lastPos);
     }
 }
+
+LARGE_INTEGER MatFile::GetFilePointer(HANDLE hFile)
+{
+   LARGE_INTEGER ret;
+   LARGE_INTEGER pos;
+   pos.QuadPart=0;
+   SetFilePointerEx(hFile,pos,&ret,FILE_CURRENT);
+
+   return ret;
+}
