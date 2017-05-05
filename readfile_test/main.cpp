@@ -1,7 +1,9 @@
-#include <windows.h>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <vector>
+#include <windows.h>
+#include "zlib.h"
+#include "unzipper.h"
 
 using namespace std;
 
@@ -85,6 +87,65 @@ void read4()
   flarge.close();
 }
 
+//zlib test
+void read5()
+{
+  FILE * readFile = fopen("somezip.zip", "rb");
+  if( readFile == NULL )
+  {
+    cout << "Couldn't open input file for reading\n";
+    return;
+  }
+
+  // get size of file
+  fseek( readFile, 0, SEEK_END );
+  ULONG fileLength = ftell( readFile );
+  rewind( readFile );
+
+  // allocate enough mems to hold entire file
+  // alternatively, we could "memory map" the
+  // file contents using the CreateFileMapping and
+  // MapViewOfFile funcs.
+  BYTE * dataReadInCompressed = (BYTE*)malloc( fileLength );
+
+  // read in entire file
+  fread( dataReadInCompressed, fileLength, 1, readFile );
+
+  // close file
+  fclose( readFile );
+  readFile = NULL;
+
+  cout << "*\n Some data from compressed file:\n";
+  cout << "\n--\n";
+  for( int i = 0 ; i < 300; i++ )
+  {
+    putchar( dataReadInCompressed[i] );
+  }
+  cout << "\n--\n\n";
+
+}
+
+//zipper read file from a zip
+void read6()
+{
+  //Unzipper unzipper("somezip.zip");
+  //std::vector<ZipEntry> entries = unzipper.entries();
+  //unzipper.close();
+
+  //print some.txt
+  std::vector<unsigned char> unzipped_entry;
+  zipper::Unzipper unzipper("somezip.zip");
+  unzipper.extractEntryToMemory("some.txt", unzipped_entry);
+  unzipper.close();
+
+  std::cout << "Printing some text from somezip->some.txt\n";
+  for(std::vector<unsigned char>::iterator it = unzipped_entry.begin();
+      it != unzipped_entry.end(); ++it)
+  {
+    std::cout << *it;
+  }
+}
+
 int main()
 {
   ofstream file;
@@ -106,7 +167,8 @@ int main()
     read3();
     read4();
     read1(); //multiple reads on same file
-
+    read5();
+    read6();
   }
   return 0;
 }
