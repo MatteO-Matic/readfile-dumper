@@ -1,9 +1,10 @@
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <vector>
 #include <windows.h>
-#include "zlib.h"
-#include "unzipper.h"
+#include "ziputil/zip.h"
+#include "ziputil/unzip.h"
 
 using namespace std;
 
@@ -123,27 +124,32 @@ void read5()
   }
   cout << "\n--\n\n";
 
+  free( dataReadInCompressed );
 }
 
-//zipper read file from a zip
+//unzip read file from a zip
 void read6()
 {
-  //Unzipper unzipper("somezip.zip");
-  //std::vector<ZipEntry> entries = unzipper.entries();
-  //unzipper.close();
-
-  //print some.txt
-  std::vector<unsigned char> unzipped_entry;
-  zipper::Unzipper unzipper("somezip.zip");
-  unzipper.extractEntryToMemory("some.txt", unzipped_entry);
-  unzipper.close();
-
-  std::cout << "Printing some text from somezip->some.txt\n";
-  for(std::vector<unsigned char>::iterator it = unzipped_entry.begin();
-      it != unzipped_entry.end(); ++it)
+  HZIP hh = OpenZip("somezip.zip", "");
+  if (hh == NULL)
   {
-    std::cout << *it;
+    cout << "zip not found\n";
+    return;
   }
+
+  ZIPENTRY hze;
+  int hi;
+  FindZipItem(hh, "large.txt", true, &hi, &hze);
+  char *ibuf = new char[hze.unc_size];
+  UnzipItem(hh, hi, ibuf, hze.unc_size);
+
+
+  cout << ibuf << "\n";
+
+  delete[] ibuf;
+  CloseZip(hh);
+
+  // note: no need to free resources obtained through Find/Load/LockResource
 }
 
 int main()
@@ -162,13 +168,13 @@ int main()
     string input;
     cin >> input;
 
-    read1();
-    read2();
-    read3();
-    read4();
-    read1(); //multiple reads on same file
+    //read1();
+    //read2();
+    ////read3();
+    //read4();
+    //read1(); //multiple reads on same file
     read5();
-    read6();
+    //read6();
   }
   return 0;
 }

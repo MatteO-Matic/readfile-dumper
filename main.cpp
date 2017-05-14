@@ -1,8 +1,3 @@
-//!  dllmain : dll entrypoint
-/*!
-	Need to disable security cookie as otherwise eax will be overwritten.
-	http://www.stack.nl/~dimitri/doxygen/manual/docblocks.html
-*/
 #include <windows.h>
 #include "ReadHook.h"
 

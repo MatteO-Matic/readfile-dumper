@@ -49,9 +49,13 @@ BOOL WINAPI ReadHook::ReadFileDetour(
         hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
   }
 
+  Logger::getLogger()->Log("LP");
+  Logger::getLogger()->Log(static_cast<const char*>( lpBuffer ));
+
   TCHAR fPath[LONG_PATH];
   DWORD dwRet;
   dwRet = GetFinalPathNameByHandle(hFile, fPath, LONG_PATH, NULL);
+
 
   if(dwRet < LONG_PATH)
   {
